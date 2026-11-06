@@ -1,0 +1,18 @@
+
+# Environnements virtuels
+venv/
+.env/
+env/
+
+# Fichiers Python compilés
+__pycache__/
+*.pyc
+
+# Fichiers temporaires ou données locales
+*.json
+data/
+
+# Fichiers d'environnement et secrets
+.env
+*.pem
+EOF
