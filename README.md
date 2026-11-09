@@ -1,147 +1,467 @@
 # ⚽ End-to-End Serverless Football Analytics Pipeline on AWS
 
-An automated, cloud-native data pipeline designed to collect, store, and analyze European football league data using a fully serverless AWS architecture.
+An end-to-end **serverless Data Engineering project** designed to collect, ingest, transform, orchestrate, and analyze European football data using AWS cloud services.
 
-This project demonstrates how to build a scalable data ingestion pipeline following an ELT (Extract, Load, Transform) approach, leveraging AWS managed services to automate data collection and prepare football data for analytical workloads and business intelligence dashboards.
+This project implements a production-oriented ELT (Extract, Load, Transform) architecture leveraging **AWS Lambda, Amazon S3, Amazon EventBridge, AWS Step Functions, AWS Glue, and Amazon Athena**.
+
+The pipeline automatically extracts football standings and match data from the [football-data.org API](https://www.football-data.org/), stores raw JSON records in Amazon S3, transforms them into optimized Parquet datasets, and prepares analytical tables for downstream BI applications.
+
+The main objective is to demonstrate how to design and implement a scalable, automated, and cost-efficient cloud-native data platform.
 
 ---
 
-## 📌 Architecture Overview
+## 📌 1. Project Overview
 
-The pipeline automatically retrieves football data from the [football-data.org API](https://www.football-data.org/), stores raw JSON responses in Amazon S3, and makes the data available for querying and analytics through AWS Athena and AWS Glue.
+The project follows a serverless architecture organized around two main data lake layers:
+
+- **Raw Layer:** Stores original API responses in JSON format, preserving the ingested data.
+- **Curated Layer:** Contains cleaned, transformed, compressed, and partitioned Parquet datasets optimized for analytical queries.
+
+AWS Step Functions coordinates the execution of the different pipeline stages, while EventBridge triggers automated daily executions.
 
 ### Architecture Diagram
 
 ```text
-                  ┌─────────────────────────┐
-                  │   football-data.org     │
-                  │       REST API          │
-                  └────────────┬────────────┘
-                               │
-                               ▼
-                  ┌─────────────────────────┐
-                  │    AWS Lambda           │
-                  │    Python 3.12          │
-                  │    Data Ingestion       │
-                  └────────────┬────────────┘
-                               ▲
-                               │
-                  ┌────────────┴────────────┐
-                  │   Amazon EventBridge    │
-                  │   Daily at 22:00 UTC    │
-                  └─────────────────────────┘
-                               │
-                               ▼
-                  ┌─────────────────────────┐
-                  │      Amazon S3          │
-                  │       Data Lake         │
-                  │       Raw Layer         │
-                  └────────────┬────────────┘
-                               │
-                               ▼
-                  ┌─────────────────────────┐
-                  │     AWS Glue Catalog    │
-                  │      Metadata Layer     │
-                  └────────────┬────────────┘
-                               │
-                               ▼
-                  ┌─────────────────────────┐
-                  │      Amazon Athena      │
-                  │      SQL Analytics      │
-                  └────────────┬────────────┘
-                               │
-                               ▼
-                  ┌─────────────────────────┐
-                  │     BI Dashboard        │
-                  │  Power BI / Looker      │
-                  └─────────────────────────┘
+                 ┌──────────────────────────┐
+                 │    football-data.org     │
+                 │        REST API          │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │    Amazon EventBridge    │
+                 │     Daily Scheduler      │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │     AWS Step Functions   │
+                 │    Pipeline Orchestrator │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │       AWS Lambda         │
+                 │       Python 3.12        │
+                 │     Data Ingestion       │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │        Amazon S3         │
+                 │       RAW LAYER          │
+                 │        JSON              │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │       AWS Glue           │
+                 │       Data Catalog       │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │      Amazon Athena       │
+                 │   SQL Transformations    │
+                 │      CTAS Queries        │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │        Amazon S3         │
+                 │      CURATED LAYER       │
+                 │    Parquet + Snappy      │
+                 │  Partitioned Datasets   │
+                 └────────────┬─────────────┘
+                              │
+                              ▼
+                 ┌──────────────────────────┐
+                 │     BI & Analytics       │
+                 │  Power BI / Looker       │
+                 └──────────────────────────┘
 ```
-
-### AWS Components
-
-| Component | Technology | Responsibility |
-|---|---|---|
-| Data Source | football-data.org API | Provides football standings, fixtures and match data |
-| Compute | AWS Lambda (Python 3.12) | Executes serverless data ingestion |
-| Orchestration | Amazon EventBridge | Triggers daily ingestion automatically |
-| Storage | Amazon S3 | Stores raw JSON data in a data lake |
-| Data Catalog | AWS Glue | Manages table metadata and schemas |
-| Query Engine | Amazon Athena | Enables serverless SQL analytics |
-| Visualization | Power BI / Looker Studio | Displays football performance indicators |
-
-### Data Architecture
-
-The project follows a raw data lake architecture, with data organized using time-based partitions.
-
-Example S3 structure:
-
-```text
-football-analytics/
-│
-└── raw/
-    ├── standings/
-    │   └── year=2026/
-    │       └── month=11/
-    │           └── standings_2026-11-06.json
-    │
-    ├── fixtures/
-    │   └── year=2026/
-    │       └── month=11/
-    │           └── fixtures_2026-11-06.json
-    │
-    └── matches/
-        └── year=2026/
-            └── month=11/
-                └── matches_2026-11-06.json
-```
-
-This partitioning strategy improves data organization and prepares the lake for efficient querying with Amazon Athena.
 
 ---
 
-## 📁 Project Structure
+## 🛠️ 2. Technologies & AWS Services
+
+| Category | Technology | Responsibility |
+|---|---|---|
+| Programming | Python 3.12 | Data ingestion and processing |
+| Data Source | football-data.org API | Football standings and fixtures |
+| Cloud Platform | AWS | Cloud infrastructure |
+| Data Ingestion | AWS Lambda | Serverless API extraction |
+| Object Storage | Amazon S3 | Raw and curated data storage |
+| Orchestration | AWS Step Functions | Pipeline execution and dependencies |
+| Scheduling | Amazon EventBridge | Automated daily execution |
+| Metadata Management | AWS Glue Catalog | Table schemas and metadata |
+| Data Transformation | Amazon Athena | SQL transformations and CTAS |
+| Data Format | Apache Parquet | Columnar analytical storage |
+| Compression | Snappy | Storage and query optimization |
+| Analytics | SQL | Football performance analysis |
+| Version Control | Git / GitHub | Source code management |
+
+---
+
+## 🏗️ 3. Data Lake Architecture
+
+The data lake is hosted in Amazon S3 using a multi-layer architecture.
+
+**S3 Bucket:**
 
 ```text
-football-analytics/
+s3://football-analytics-branish/
+```
+
+### 3.1 Raw Layer — JSON
+
+The Raw Layer stores the original API responses retrieved from football-data.org.
+
+Its main purpose is to preserve the source data and provide a foundation for reproducible transformations.
+
+```text
+football-analytics-branish/
+│
+├── raw/
+│   ├── standings/
+│   │   └── year=2026/
+│   │       └── month=11/
+│   │           └── ...
+│   │
+│   └── fixtures/
+│       └── year=2026/
+│           └── month=11/
+│               └── ...
+```
+
+Key characteristics:
+
+- Original JSON payloads.
+- Time-based folder organization.
+- Separation between standings and fixtures.
+- Historical data preservation.
+- Independent ingestion and transformation layers.
+
+### 3.2 Curated Layer — Parquet
+
+The Curated Layer contains transformed datasets designed for analytical workloads.
+
+Raw JSON records are processed through Athena SQL queries and materialized using CTAS (CREATE TABLE AS SELECT).
+
+The resulting datasets use:
+
+- Apache Parquet columnar format.
+- Snappy compression.
+- Partitioned storage.
+- Cleaned and structured records.
+- Athena-compatible schemas.
+
+```text
+football-analytics-branish/
+│
+├── curated/
+│   ├── standings/
+│   │   └── ...
+│   │
+│   └── matches/
+│       ├── status=FINISHED/
+│       ├── status=SCHEDULED/
+│       └── ...
+│
+└── athena-query-results/
+```
+
+**Why Parquet and Snappy?**
+
+Compared with raw JSON, Parquet provides several advantages:
+
+- Columnar storage.
+- Efficient compression.
+- Reduced data scanning for analytical queries.
+- Faster filtering and aggregation.
+- Better integration with Athena and BI tools.
+
+Partitioning the matches dataset by `status` also enables partition pruning, reducing unnecessary data reads when queries filter by match status.
+
+---
+
+## ⚙️ 4. Data Pipeline Workflow
+
+The pipeline is coordinated through AWS Step Functions.
+
+Each execution follows a sequence of ingestion, metadata management, and transformation tasks.
+
+### Step 1 — Automated Trigger
+
+Amazon EventBridge schedules the pipeline execution.
+
+```text
+EventBridge
+    |
+    ▼
+Step Functions State Machine
+```
+
+The scheduler triggers the workflow automatically according to the configured schedule.
+
+### Step 2 — Data Ingestion
+
+AWS Lambda executes the Python ingestion logic.
+
+The Lambda function:
+
+1. Calls the football-data.org REST API.
+2. Retrieves standings and fixtures.
+3. Processes the API responses.
+4. Organizes the output by dataset and ingestion date.
+5. Uploads the raw JSON files to Amazon S3.
+
+```text
+football-data.org API
+         |
+         ▼
+    AWS Lambda
+         |
+         ▼
+    Amazon S3
+      RAW JSON
+```
+
+### Step 3 — Metadata Management
+
+AWS Glue Data Catalog manages the metadata associated with the analytical tables.
+
+Athena uses the catalog to identify table schemas, locations, and available columns.
+
+SQL definitions are used to create external tables and analytical views.
+
+### Step 4 — Data Cleaning and Transformation
+
+Amazon Athena executes SQL transformations to prepare clean datasets.
+
+The pipeline uses analytical views such as:
+
+- `v_matches_clean`
+- `v_standings_latest`
+
+These views provide structured access to the ingested data.
+
+### Step 5 — Curated Data Materialization
+
+Athena CTAS queries materialize the cleaned datasets into physical Parquet tables.
+
+Example configuration:
+
+```sql
+WITH (
+    format = 'PARQUET',
+    write_compression = 'SNAPPY',
+    external_location = 's3://football-analytics-branish/curated/matches/',
+    partitioned_by = ARRAY['status']
+)
+```
+
+The result is a compressed, columnar, partitioned dataset optimized for downstream analytical queries.
+
+### Step 6 — Orchestration and Execution Management
+
+AWS Step Functions coordinates the different pipeline stages.
+
+The state machine manages:
+
+- Lambda invocation.
+- Task dependencies.
+- Athena query execution.
+- Metadata cleanup.
+- Transformation sequencing.
+- Workflow execution status.
+
+This centralizes pipeline orchestration and makes the execution process easier to monitor and maintain.
+
+---
+
+## 🔄 5. AWS Step Functions Orchestration
+
+The pipeline uses an AWS Step Functions State Machine to coordinate the end-to-end workflow.
+
+The orchestration layer separates data extraction from analytical transformations.
+
+Conceptually, the execution follows:
+
+```text
+START
+  |
+  ▼
+TriggerLambdaIngestion
+  |
+  ▼
+DropExistingCuratedTables
+  |
+  ▼
+RunStandingsCTAS
+  |
+  ▼
+RunMatchesCTAS
+  |
+  ▼
+SUCCESS
+```
+
+The actual state machine is maintained in:
+
+```text
+orchestration/
+└── step_functions_pipeline.json
+```
+
+This approach provides a centralized execution layer and allows individual pipeline stages to be monitored independently.
+
+---
+
+## 📊 6. Analytical SQL Queries
+
+The Curated Layer provides a foundation for football performance analysis.
+
+The following examples demonstrate some of the analytical queries developed with Amazon Athena.
+
+### 6.1 Teams Unbeaten at Home
+
+Identify teams that have not lost any completed home matches.
+
+```sql
+SELECT
+    home_team,
+    COUNT(*) AS total_home_matches,
+
+    COUNT(
+        CASE WHEN winner = 'HOME_TEAM'
+        THEN 1 END
+    ) AS home_wins,
+
+    COUNT(
+        CASE WHEN winner = 'DRAW'
+        THEN 1 END
+    ) AS home_draws,
+
+    COUNT(
+        CASE WHEN winner = 'AWAY_TEAM'
+        THEN 1 END
+    ) AS home_losses
+
+FROM football_analytics.v_matches_clean
+
+WHERE status = 'FINISHED'
+
+GROUP BY home_team
+
+HAVING COUNT(
+    CASE WHEN winner = 'AWAY_TEAM'
+    THEN 1 END
+) = 0
+
+ORDER BY home_wins DESC;
+```
+
+### 6.2 High-Scoring Matches
+
+Identify matches with at least four goals.
+
+```sql
+SELECT
+    match_date,
+    home_team,
+    home_score,
+    away_team,
+    away_score,
+
+    (home_score + away_score) AS total_goals
+
+FROM football_analytics.v_matches_clean
+
+WHERE (home_score + away_score) >= 4
+  AND UPPER(status) = 'FINISHED'
+
+ORDER BY total_goals DESC;
+```
+
+### 6.3 Analytical Use Cases
+
+The datasets can also support:
+
+- League standings analysis.
+- Home and away performance comparisons.
+- Team scoring statistics.
+- Match outcome distributions.
+- High-scoring match detection.
+- Historical match analysis.
+- League-level performance indicators.
+
+---
+
+## 📁 7. Repository Structure
+
+```text
+football-analytics-pipeline/
+│
+├── orchestration/
+│   └── step_functions_pipeline.json
+│       # AWS Step Functions state machine
+│
+├── sql/
+│   ├── ddl_views.sql
+│   │   # External tables and analytical views
+│   │
+│   ├── curated_parquet_ctas.sql
+│   │   # CTAS transformations and Parquet materialization
+│   │
+│   └── analytics_queries.sql
+│       # Football analytical SQL queries
 │
 ├── src/
-│   ├── local_ingest.py       # Local ingestion and data validation
-│   └── lambda_function.py    # AWS Lambda production handler
+│   └── local_ingest.py
+│       # Local ingestion testing
 │
-├── .gitignore                # Excludes secrets and local files
-├── requirements.txt          # Python dependencies
-└── README.md                 # Project documentation
+├── lambda_function.py
+│   # AWS Lambda production handler
+│
+├── requirements.txt
+│   # Python dependencies
+│
+├── .gitignore
+│
+└── README.md
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 8. Getting Started
 
 ### Prerequisites
 
 Before running the project, make sure you have:
 
-- Python 3.10 or higher.
+- Python 3.12+
 - An AWS account.
-- AWS CLI installed and configured.
-- An API key from [football-data.org](https://www.football-data.org/).
-- Basic knowledge of AWS Lambda, Amazon S3 and IAM.
+- AWS CLI configured.
+- Appropriate IAM permissions.
+- An API token from football-data.org.
+- Access to Amazon S3, Lambda, Athena, Glue, EventBridge, and Step Functions.
 
-### 1. Clone the Repository
+### 8.1 Clone the Repository
 
 ```bash
-git clone https://github.com/<your-username>/football-analytics-pipeline.git
+git clone https://github.com/branis192/football-analytics-pipeline.git
 
 cd football-analytics-pipeline
 ```
 
-### 2. Create a Virtual Environment
+### 8.2 Create a Virtual Environment
 
 ```bash
 python3 -m venv venv
 ```
 
-Activate the environment:
+Activate it:
 
 **Linux / macOS**
 
@@ -151,248 +471,199 @@ source venv/bin/activate
 
 **Windows**
 
-```bash
+```powershell
 venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
+### 8.3 Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 8.4 Configure AWS Credentials
 
-Set your API key and AWS configuration.
-
-```bash
-export FOOTBALL_DATA_API_KEY="your_api_key"
-export AWS_DEFAULT_REGION="eu-west-3"
-```
-
-On Windows PowerShell:
-
-```powershell
-$env:FOOTBALL_DATA_API_KEY="your_api_key"
-$env:AWS_DEFAULT_REGION="eu-west-3"
-```
-
-AWS credentials should be configured securely using the AWS CLI or an IAM role.
+Configure your AWS CLI:
 
 ```bash
 aws configure
 ```
 
-**Security note:** Never commit API keys, AWS credentials or other sensitive information to GitHub.
+Provide the required credentials and AWS region.
 
-### 5. Run Local Ingestion
+The Lambda function should retrieve the football-data.org API token from a secure configuration mechanism such as AWS Secrets Manager or an encrypted Lambda environment variable.
 
-Execute the local ingestion script to test API connectivity and validate data extraction.
+Never commit API tokens, AWS credentials, or other secrets to GitHub.
+
+### 8.5 Run Local Ingestion Tests
 
 ```bash
-python3 src/local_ingest.py
+python src/local_ingest.py
 ```
+
+This script can be used to test the extraction logic before deploying it to AWS Lambda.
 
 ---
 
-## ⚙️ AWS Configuration and Deployment
+## ☁️ 9. AWS Deployment
 
-### 1. Amazon S3 – Data Lake Storage
+The project relies on AWS managed services.
 
-Create an S3 general-purpose bucket:
+The main deployment steps are:
+
+1. Create the S3 bucket and configure the data lake folders.
+2. Deploy the Lambda ingestion function.
+3. Configure the required IAM permissions.
+4. Create the Glue database and register the external tables.
+5. Execute the SQL definitions in Athena.
+6. Deploy the Step Functions state machine.
+7. Configure the EventBridge schedule.
+8. Validate the end-to-end execution.
+
+### S3 Bucket
 
 ```text
-football-analytics-<your-unique-id>
+football-analytics-branish
 ```
 
-Recommended security configuration:
-
-- Block all public access.
-- Enable server-side encryption using SSE-S3.
-- Enable bucket versioning (recommended).
-- Apply least-privilege access policies.
-- Organize data using year and month partitions.
-
-### 2. AWS IAM – Permissions and Security
-
-Create an IAM execution role for AWS Lambda.
-
-Attach the following managed policy:
-
-- `AWSLambdaBasicExecutionRole`: Provides permissions to write execution logs to Amazon CloudWatch Logs.
-
-Add a custom S3 policy granting the Lambda function permission to write objects to the target bucket.
-
-Example IAM policy:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "s3:PutObject"
-      ],
-      "Resource": "arn:aws:s3:::football-analytics-<your-id>/raw/*"
-    }
-  ]
-}
-```
-
-Use AWS Secrets Manager or Lambda environment variables with appropriate protection to manage the football-data.org API key.
-
-### 3. AWS Lambda – Serverless Ingestion
-
-Create an AWS Lambda function with the following configuration:
-
-| Setting | Value |
-|---|---|
-| Runtime | Python 3.12 |
-| Architecture | x86_64 or arm64 |
-| Handler | lambda_function.lambda_handler |
-| Execution timeout | 15 seconds |
-| Memory | 256 MB |
-| Execution role | Custom IAM role |
-
-The Lambda function is responsible for:
-
-1. Connecting to the football-data.org REST API.
-2. Authenticating using the API key.
-3. Extracting football standings, fixtures and match data.
-4. Processing the API responses.
-5. Uploading raw JSON files to Amazon S3.
-6. Logging execution details and potential errors in CloudWatch.
-
-### 4. Amazon EventBridge – Automated Scheduling
-
-Create an EventBridge scheduled rule to trigger the Lambda function once per day.
-
-Cron expression:
+### Athena Database
 
 ```text
-cron(0 22 * * ? *)
+football_analytics
 ```
 
-This schedule triggers the ingestion process daily at **22:00 UTC**.
+### SQL Resources
 
-Make sure EventBridge has permission to invoke the Lambda function.
-
----
-
-## 📊 Data Analytics and Querying
-
-The next stage of the project focuses on making raw football data accessible for analytical workloads.
-
-### AWS Glue Data Catalog
-
-Create a Glue database to organize the football datasets.
-
-Example:
-
-```sql
-CREATE DATABASE football_analytics;
+```text
+sql/
+├── ddl_views.sql
+├── curated_parquet_ctas.sql
+└── analytics_queries.sql
 ```
 
-Define the corresponding table schemas and configure the S3 locations.
+### Orchestration Resource
 
-### Amazon Athena
-
-Use Athena to query football data directly from Amazon S3 without managing infrastructure.
-
-Example analytical queries:
-
-**1. Retrieve league standings**
-
-```sql
-SELECT
-    team_name,
-    played_games,
-    won,
-    draw,
-    lost,
-    points,
-    goal_difference
-FROM football_standings
-ORDER BY points DESC;
+```text
+orchestration/
+└── step_functions_pipeline.json
 ```
 
-**2. Identify teams with the highest goal difference**
+---
 
-```sql
-SELECT
-    team_name,
-    goal_difference
-FROM football_standings
-ORDER BY goal_difference DESC
-LIMIT 10;
-```
+## 📈 10. Performance & Cost Optimization
 
-*These queries illustrate the intended analytical layer and require the corresponding Glue tables and column schemas to be created first.*
+Several design decisions were made to improve analytical performance and control cloud costs.
+
+| Optimization | Implementation | Benefit |
+|---|---|---|
+| Columnar storage | Apache Parquet | Efficient analytical reads |
+| Compression | Snappy | Reduced storage footprint |
+| Partitioning | `status` | Partition pruning |
+| SQL transformations | Athena CTAS | Materialized datasets |
+| Serverless compute | Lambda and Athena | No permanent compute infrastructure |
+| Workflow orchestration | Step Functions | Centralized execution management |
+| Automated scheduling | EventBridge | Reduced manual operations |
+
+**Important:** Actual query cost and performance improvements depend on dataset size, query patterns, partition selectivity, and the amount of data scanned. They should be measured through Athena execution statistics rather than assumed.
 
 ---
 
-## 📈 Roadmap
+## 🗺️ 11. Project Roadmap
 
-The project is being developed incrementally, following a serverless data engineering approach.
+### ✅ Completed
 
-- [x] Set up the Python ingestion scripts.
-- [x] Integrate football-data.org API authentication.
-- [x] Implement automated raw data ingestion into Amazon S3.
-- [x] Configure AWS Lambda for serverless execution.
-- [x] Schedule daily ingestion using Amazon EventBridge.
-- [ ] Create AWS Glue databases and table schemas.
-- [ ] Configure Amazon Athena for SQL-based analytics.
-- [ ] Implement data transformation and modeling using dbt.
-- [ ] Design a dimensional model using a Star Schema.
-- [ ] Build an interactive football analytics dashboard.
-- [ ] Implement data quality checks and monitoring.
-- [ ] Add automated testing and CI/CD deployment.
+- [x] Connect to the football-data.org API.
+- [x] Develop Python ingestion scripts for standings and fixtures.
+- [x] Implement local ingestion testing.
+- [x] Deploy AWS Lambda for automated data extraction.
+- [x] Store raw JSON records in Amazon S3.
+- [x] Organize the Raw Layer using time-based folders.
+- [x] Create AWS Glue Catalog metadata.
+- [x] Define Athena external tables.
+- [x] Develop SQL analytical views.
+- [x] Implement `v_standings_latest`.
+- [x] Implement `v_matches_clean`.
+- [x] Create Curated Layer using Athena CTAS.
+- [x] Materialize datasets in Apache Parquet format.
+- [x] Enable Snappy compression.
+- [x] Implement partitioning by match status.
+- [x] Develop analytical SQL queries.
+- [x] Implement AWS Step Functions orchestration.
+- [x] Integrate Lambda and Athena execution stages.
+- [x] Configure EventBridge scheduling.
 
----
+### 🚧 Next Steps
 
-## 🎯 Key Learning Objectives
-
-This project provides hands-on experience with:
-
-- **Cloud Data Engineering:** Building serverless data pipelines on AWS.
-- **Python Development:** Developing API integrations and automated ingestion scripts.
-- **ELT Architecture:** Separating raw data ingestion from transformation.
-- **Data Lake Design:** Structuring and partitioning data in Amazon S3.
-- **AWS Serverless Services:** Working with Lambda, EventBridge, Glue and Athena.
-- **SQL Analytics:** Querying and analyzing structured football datasets.
-- **Data Modeling:** Designing analytical models using dimensional modeling and dbt.
-- **Business Intelligence:** Turning football data into actionable insights.
-
----
-
-## 🔐 Security Considerations
-
-Security is an important part of the architecture.
-
-The project follows these principles:
-
-- No hardcoded API keys or AWS credentials.
-- S3 buckets remain private.
-- IAM permissions follow the principle of least privilege.
-- Sensitive credentials are managed securely.
-- Server-side encryption is enabled for stored data.
-- Application logs are monitored through Amazon CloudWatch.
+- [ ] Connect Amazon Athena to Power BI or Looker Studio.
+- [ ] Build interactive football analytics dashboards.
+- [ ] Implement automated data quality checks.
+- [ ] Add schema validation and ingestion error handling.
+- [ ] Implement CI/CD using GitHub Actions.
+- [ ] Automate AWS infrastructure deployment using Terraform or AWS CDK.
+- [ ] Add pipeline execution alerts using Amazon SNS.
+- [ ] Implement historical data backfills.
+- [ ] Improve monitoring and observability.
 
 ---
 
-## 👨‍💻 Author
+## 🎯 12. Key Data Engineering Skills Demonstrated
 
-**<Your Name>**
+This project demonstrates practical experience across several areas of modern Data Engineering.
+
+**Data Ingestion**
+- REST API integration.
+- Python-based extraction.
+- Serverless ingestion with AWS Lambda.
+- JSON data handling.
+
+**Cloud Data Engineering**
+- Amazon S3 Data Lake architecture.
+- Raw and Curated storage layers.
+- AWS Glue Data Catalog.
+- Amazon Athena.
+
+**Data Transformation**
+- SQL-based data cleaning.
+- Analytical views.
+- CTAS materialization.
+- Parquet conversion.
+- Snappy compression.
+- Partition pruning.
+
+**Cloud Orchestration**
+- AWS Step Functions.
+- Amazon EventBridge.
+- Serverless workflow automation.
+- Multi-stage pipeline execution.
+
+**Analytics**
+- Football performance analysis.
+- SQL aggregations.
+- Match outcome analysis.
+- BI-ready datasets.
+
+---
+
+## 👨‍💻 13. Author
+
+**Branis HOUCHI**
 
 Data Engineering | Python | SQL | AWS | Cloud Computing
 
-GitHub: [https://github.com/<your-username>](https://github.com/<your-username>)
+GitHub: [@branis192](https://github.com/branis192)
+
+Repository: [football-analytics-pipeline](https://github.com/branis192/football-analytics-pipeline)
 
 ---
 
-## 📄 License
+## ⭐ Final Thoughts
 
-This project is intended for educational and portfolio purposes.
+This project demonstrates how to build a complete serverless data pipeline using AWS managed services, from raw API ingestion to optimized analytical datasets.
 
-Data provided by [football-data.org](https://www.football-data.org/) is subject to its API terms of use and licensing conditions.
+By combining Python, SQL, Amazon S3, Lambda, Glue, Athena, Step Functions, and EventBridge, the project showcases essential Data Engineering skills:
+
+**Data Ingestion → Data Lake → Data Transformation → Orchestration → Analytics**
+
+The next objective is to extend this platform with interactive BI dashboards, automated data quality validation, infrastructure as code, and CI/CD deployment.
+
+If you find this project useful, feel free to ⭐ the repository!
