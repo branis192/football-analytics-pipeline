@@ -1,0 +1,63 @@
+{
+  "Comment": "End-to-End Football Data Pipeline: Ingestion and Parquet Refresh",
+  "StartAt": "TriggerLambdaIngestion",
+  "States": {
+    "TriggerLambdaIngestion": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "football-data-ingestion",
+        "Payload": {}
+      },
+      "Next": "DropExistingCuratedMatches"
+    },
+    "DropExistingCuratedMatches": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString": "DROP TABLE IF EXISTS football_analytics.matches_analytics;",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://football-analytics-branish/athena-query-results/"
+        }
+      },
+      "Next": "DropExistingCuratedStandings"
+    },
+    "DropExistingCuratedStandings": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString": "DROP TABLE IF EXISTS football_analytics.standings_analytics;",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://football-analytics-branish/athena-query-results/"
+        }
+      },
+      "Next": "RunMatchesCTAS"
+    },
+    "RunMatchesCTAS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString": "CREATE TABLE football_analytics.matches_analytics WITH (format = 'PARQUET', parquet_compression = 'SNAPPY', external_location = 's3://football-analytics-branish/curated/matches/', partitioned_by = ARRAY['status']) AS SELECT match_id, league_name, match_date, matchday, home_team, away_team, home_score, away_score, winner, status FROM football_analytics.v_matches_clean;",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://football-analytics-branish/athena-query-results/"
+        }
+      },
+      "Next": "RunStandingsCTAS"
+    },
+    "RunStandingsCTAS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": {
+        "QueryString": "CREATE TABLE football_analytics.standings_analytics WITH (format = 'PARQUET', parquet_compression = 'SNAPPY', external_location = 's3://football-analytics-branish/curated/standings/') AS SELECT * FROM football_analytics.v_standings_latest;",
+        "WorkGroup": "primary",
+        "ResultConfiguration": {
+          "OutputLocation": "s3://football-analytics-branish/athena-query-results/"
+        }
+      },
+      "End": true
+    }
+  }
+}
